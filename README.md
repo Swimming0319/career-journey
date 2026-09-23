@@ -2,7 +2,9 @@
 
 一份做成 3D 互動旅程的前端工程師履歷。捲動頁面時，相機會沿著一條路徑飛過五座島嶼，每一座代表職涯的一個階段；停靠時可以拖曳環繞島嶼，點擊島上的告示牌查看專案細節。
 
-![Career Journey](docs/cover.png)
+### → [開啟互動版](https://swimming0319.github.io/career-journey/)
+
+[![Career Journey](docs/cover.png)](https://swimming0319.github.io/career-journey/)
 
 > 畫面中：飛船載著旅人停靠在最後一站，島上有辦公樓、小屋與告示牌，右側的金色星星是藏起來的 side project。遠處是上一站的島嶼。
 
@@ -10,7 +12,7 @@
 ![Three.js](https://img.shields.io/badge/Three.js-0.186-000000?style=flat-square)
 ![Vite](https://img.shields.io/badge/Vite-8-646cff?style=flat-square)
 
-場景全部是程式生成的，沒有使用任何外部 3D 模型檔案。clone 下來跑 `npm run dev` 就能實際捲動體驗。
+場景全部是程式生成的，沒有使用任何外部 3D 模型檔案。
 
 ## 特色
 
