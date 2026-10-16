@@ -9,6 +9,7 @@ import { computeStopFractions, segmentAt } from './journeyMath.js'
 import { PROJECTS, EASTER_EGG } from './projects.js'
 import { PathMarker, OrbitMarker } from './markers/FloatingMarkers.jsx'
 import ProjectCard from './markers/ProjectCard.jsx'
+import GuideTracker from './markers/GuideTracker.jsx'
 import { ContactBar, ArrivalCard } from './Contact.jsx'
 
 gsap.registerPlugin(ScrollTrigger)
@@ -26,6 +27,16 @@ const STOPS = [
   { position: [32, 2, -38], color: '#e07a4c', scale: 1.25, roughness: 0.22, treeCount: 10, rockCount: 5, bushCount: 4, buildings: ['windmill'], clouds: 2, label: '04', title: '第二份前端工作', period: '2025/11 ～ 2026/3', desc: '在好好證券基金交易平台，負責產品優化及迭代並主導基金詳情頁與找基金頁從 Nuxt 2 升級到 Nuxt 3，並透過反覆調校 AI prompt 找出最適合的工作量估算方式。' },
   { position: [45, 4, -54], color: '#ff7b54', scale: 1.4, roughness: 0.18, treeCount: 12, rockCount: 5, bushCount: 5, buildings: ['house', 'office'], clouds: 3, label: '05', title: '現在', period: '2026/7 ～ 仍在職', desc: '目前在長川資訊擔任前端工程師，用 Vue 3 / Nuxt 開發網頁，負責重構台灣觀光協會後台管理系統的台灣國際旅展管理模組。' },
 ]
+
+// 每一站文字底下列出的專案按鈕：貼在島上的告示牌歸那座島，浮在路上的浮標歸出發的那一站；
+// 彩蛋星星刻意不列，保留讓人自己發現的驚喜
+const PROJECTS_BY_STOP = STOPS.map((_, i) =>
+  PROJECTS.filter((project) => (project.attach.kind === 'path' ? project.attach.afterIndex : project.attach.islandIndex) === i)
+)
+
+// 新手引導出現在第一座有告示牌的島，指向那座島上當下看得到的標記
+const GUIDE_STOP = PROJECTS.find((project) => project.attach.islandIndex !== undefined)?.attach.islandIndex
+const GUIDE_PROJECT_IDS = PROJECTS.filter((project) => project.attach.islandIndex === GUIDE_STOP).map((project) => project.id)
 
 // 用 Catmull-Rom 曲線把所有停靠站串成一條平滑的路徑
 function buildCurve(stops) {
@@ -159,7 +170,9 @@ function CameraRig({ curve, progress, stops, stopFractions }) {
   return <directionalLight ref={lightRef} intensity={1.1} castShadow />
 }
 
-function Scene({ curve, progress, stops, stopFractions, onSelectProject, labelRef }) {
+const NO_MARKERS = []
+
+function Scene({ curve, progress, stops, stopFractions, onSelectProject, labelRef, highlightedId, guideActive, guideRef }) {
   const points = useMemo(() => curve.getPoints(200), [curve])
   const linePositions = useMemo(
     () => new Float32Array(points.flatMap((p) => [p.x, p.y, p.z])),
@@ -167,12 +180,13 @@ function Scene({ curve, progress, stops, stopFractions, onSelectProject, labelRe
   )
 
   // 依 islandIndex 把專案分組，貼在島上的告示牌；path / orbit 兩種則不屬於任何一座島，另外處理
-  const projectsByIsland = useMemo(() => {
+  // 直接存成 Island 要的 markers 格式並 memo 起來，滑過按鈕造成的重渲染才不會讓每座島重算標記位置
+  const markersByIsland = useMemo(() => {
     const map = new Map()
     PROJECTS.forEach((project) => {
       if (project.attach.islandIndex === undefined) return
       const list = map.get(project.attach.islandIndex) ?? []
-      list.push(project)
+      list.push({ id: project.id, dir: project.attach.dir, title: project.title })
       map.set(project.attach.islandIndex, list)
     })
     return map
@@ -208,9 +222,10 @@ function Scene({ curve, progress, stops, stopFractions, onSelectProject, labelRe
           bushCount={stop.bushCount}
           buildings={stop.buildings}
           clouds={stop.clouds}
-          markers={(projectsByIsland.get(i) ?? []).map((project) => ({ id: project.id, dir: project.attach.dir, title: project.title }))}
+          markers={markersByIsland.get(i) ?? NO_MARKERS}
           onSelectProject={onSelectProject}
           labelRef={labelRef}
+          highlightedId={highlightedId}
         />
       ))}
 
@@ -228,8 +243,12 @@ function Scene({ curve, progress, stops, stopFractions, onSelectProject, labelRe
           onClick={() => onSelectProject(project.id)}
           title={project.title}
           labelRef={labelRef}
+          highlighted={project.id === highlightedId}
         />
       ))}
+
+      {/* 只在需要引導時才掛上，避免平常每一幀都在做遮擋判斷 */}
+      {guideActive && <GuideTracker projectIds={GUIDE_PROJECT_IDS} guideRef={guideRef} />}
 
       {/* 藏在「現在」這座島附近的驚喜：沒有正式列在職涯經歷裡的 side project */}
       <OrbitMarker
@@ -265,7 +284,10 @@ export default function CareerJourney() {
   const [activeStop, setActiveStop] = useState(0)
   const [selectedProjectId, setSelectedProjectId] = useState(null)
   const labelRef = useRef(null)
-  // 第一次成功點開專案之後就把操作提示收起來，之後不再干擾畫面
+  const guideRef = useRef(null)
+  // 滑過（或用鍵盤聚焦）專案按鈕時，島上對應的標記跟著亮起，把按鈕和 3D 標記連起來
+  const [highlightedId, setHighlightedId] = useState(null)
+  // 第一次成功點開專案之後就把操作提示和新手引導都收起來，之後不再干擾畫面
   const [hintVisible, setHintVisible] = useState(true)
   // 捲到最後一站停妥之後，把旅程文字換成抵達卡（用布林而不是連續的進度值，捲動時才不會每一幀都重繪）
   const [arrived, setArrived] = useState(false)
@@ -273,6 +295,9 @@ export default function CareerJourney() {
     setSelectedProjectId(id)
     if (id) setHintVisible(false)
   }
+  // 引導只在抵達那座島、而且還沒點過任何專案時出現；離開那一站就淡出
+  const guideVisible = hintVisible && !arrived && activeStop === GUIDE_STOP
+  const stopProjects = PROJECTS_BY_STOP[activeStop]
   const selectedProject = useMemo(
     () => [...PROJECTS, EASTER_EGG].find((project) => project.id === selectedProjectId) ?? null,
     [selectedProjectId]
@@ -310,11 +335,24 @@ export default function CareerJourney() {
             stopFractions={stopFractions}
             onSelectProject={onSelectProject}
             labelRef={labelRef}
+            highlightedId={highlightedId}
+            guideActive={guideVisible}
+            guideRef={guideRef}
           />
         </Canvas>
 
         {/* 滑過島上標記時顯示專案名稱，位置每一幀由標記自己算好直接寫進這個節點的 style，不走 React state */}
         <div ref={labelRef} style={hoverLabelStyle} />
+
+        {/* 新手引導：外層由 React 控制「這一站要不要引導」，內層的位置和「有沒有看得到的標記」由 GuideTracker 每一幀直接寫入 */}
+        <div style={{ ...guideLayerStyle, opacity: guideVisible ? 1 : 0, transition: guideVisible ? 'opacity 0.6s ease 0.8s' : 'opacity 0.3s ease' }}>
+          <div ref={guideRef} style={guidePointerStyle}>
+            <div className="guide-pointer">
+              <span className="guide-bubble">點我看專案</span>
+              <span className="guide-arrow" />
+            </div>
+          </div>
+        </div>
 
         <ContactBar />
 
@@ -326,9 +364,42 @@ export default function CareerJourney() {
           <h2 style={titleStyle}>{STOPS[activeStop].title}</h2>
           <p style={stopPeriodStyle}>{STOPS[activeStop].period}</p>
           <p style={descStyle}>{STOPS[activeStop].desc}</p>
+          {stopProjects.length > 0 && (
+            // 外層 overlay 不吃滑鼠事件（拖曳環繞要能穿過去），只有按鈕這一列例外；抵達終點、文字淡出後也一併關掉
+            <div style={{ ...projectListStyle, pointerEvents: arrived ? 'none' : 'auto' }}>
+              <p style={projectListLabelStyle}>這一站的專案</p>
+              <div style={projectButtonRowStyle}>
+                {stopProjects.map((project) => (
+                  <button
+                    key={project.id}
+                    type="button"
+                    tabIndex={arrived ? -1 : 0}
+                    style={projectButtonStyle(project.id === highlightedId)}
+                    onClick={() => {
+                      // 觸控裝置點按鈕只會觸發 enter / focus、不會有 leave，打開卡片前先把亮起狀態清掉
+                      setHighlightedId(null)
+                      onSelectProject(project.id)
+                    }}
+                    onPointerEnter={() => setHighlightedId(project.id)}
+                    onPointerLeave={() => setHighlightedId(null)}
+                    onFocus={() => setHighlightedId(project.id)}
+                    onBlur={() => setHighlightedId(null)}
+                  >
+                    <span style={projectDotStyle(project.attach.kind === 'path' ? BUOY_COLOR : PIN_COLOR)} aria-hidden="true" />
+                    {project.title}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           <p style={{ ...hintStyle, opacity: hintVisible ? 1 : 0 }}>
             <span className="hint-dot" aria-hidden="true" />
-            島上發光的標記可以點擊查看專案，按住拖曳可以環繞島嶼
+            {/* 兩句各占一行，由我們決定斷在哪裡，不讓瀏覽器把「環繞」從中間切開 */}
+            <span>
+              島上發光的標記可以點擊查看專案，
+              <br />
+              按住拖曳可以環繞島嶼
+            </span>
           </p>
         </div>
 
@@ -358,6 +429,40 @@ const hoverLabelStyle = {
   zIndex: 5,
 }
 
+// 新手引導的定位層：鋪滿畫面但不吃滑鼠事件，內層節點由 GuideTracker 每一幀寫入 transform 與 opacity
+const guideLayerStyle = { position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 4 }
+const guidePointerStyle = { position: 'absolute', top: 0, left: 0, opacity: 0, transition: 'opacity 0.3s ease' }
+
+// 按鈕前面的小點用和島上標記一樣的顏色（告示牌青色、浮標綠色），讓人把兩者對起來
+const PIN_COLOR = '#4dd0e1'
+const BUOY_COLOR = '#7ee787'
+
+const projectListStyle = { marginTop: '1rem' }
+const projectListLabelStyle = { fontSize: '0.75rem', letterSpacing: '0.05em', color: 'rgba(255, 255, 255, 0.5)', margin: '0 0 0.4rem 0' }
+const projectButtonRowStyle = { display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }
+const projectButtonStyle = (highlighted) => ({
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: '8px',
+  padding: '6px 14px',
+  borderRadius: '999px',
+  border: `1px solid ${highlighted ? 'rgba(255, 255, 255, 0.7)' : 'rgba(77, 208, 225, 0.45)'}`,
+  background: highlighted ? 'rgba(255, 255, 255, 0.16)' : 'rgba(13, 17, 23, 0.6)',
+  color: '#fff',
+  fontSize: '0.85rem',
+  fontFamily: 'inherit',
+  cursor: 'pointer',
+  transition: 'background 0.15s ease, border-color 0.15s ease',
+})
+const projectDotStyle = (color) => ({
+  width: '7px',
+  height: '7px',
+  borderRadius: '50%',
+  background: color,
+  boxShadow: `0 0 6px ${color}`,
+  flex: 'none',
+})
+
 // 捲動進度超過這個比例就算抵達終點。最後一站的停靠區大約從 0.925 開始，
 // 取 0.94 是為了確保相機已經停妥、正在環繞最後一座島時卡片才出現
 const ARRIVAL_AT = 0.94
@@ -385,12 +490,21 @@ const stopPeriodStyle = {
   margin: '0 0 0.75rem 0',
 }
 const descStyle = { fontSize: '0.95rem', opacity: 0.75, lineHeight: 1.6, margin: 0 }
-// 操作提示：字小、偏灰，前面帶一顆會呼吸的青色小點（動畫定義在 index.css 的 .hint-dot）
+// 操作提示：做成和島上標記同色系的提示框，文字夠亮、有外框，才不會被當成註腳略過；
+// 文字在窄螢幕會折成兩行，所以用中等圓角而不是膠囊形，折行時才不會變成歪掉的藥丸
+// 前面帶一顆會呼吸的青色小點（動畫定義在 index.css 的 .hint-dot）
 const hintStyle = {
-  fontSize: '0.8rem',
-  color: 'rgba(255, 255, 255, 0.55)',
+  fontSize: '0.875rem',
+  lineHeight: 1.5,
+  color: 'rgba(255, 255, 255, 0.9)',
   marginTop: '1rem',
-  display: 'flex',
+  marginRight: '16px',
+  display: 'inline-flex',
   alignItems: 'center',
+  padding: '8px 14px 8px 12px',
+  borderRadius: '10px',
+  background: 'rgba(77, 208, 225, 0.12)',
+  border: '1px solid rgba(77, 208, 225, 0.4)',
+  boxShadow: '0 0 18px rgba(77, 208, 225, 0.15)',
   transition: 'opacity 0.6s ease',
 }

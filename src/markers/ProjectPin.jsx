@@ -1,6 +1,7 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
+import { placeAbove, toScreen } from './overlay.js'
 
 const POST = '#8a8f98'
 const PLAQUE_IDLE = '#4dd0e1'
@@ -8,27 +9,42 @@ const BUOY_IDLE = '#7ee787'
 const STAR_IDLE = '#ffd27a'
 const HOVER = '#ffffff'
 
+// 懸浮文字是所有標記共用的同一個節點，用 dataset.owner 記下目前是誰在顯示：
+// 收起時只收自己的，從 A 移到 B 時，A 的收起才不會把 B 剛顯示的文字蓋掉
+function toggleLabel(label, title, show) {
+  if (show) {
+    label.textContent = title
+    label.dataset.owner = title
+    label.style.opacity = '1'
+  } else if (label.dataset.owner === title) {
+    label.style.opacity = '0'
+  }
+}
+
 // 共用的滑鼠事件：滑過時放大＋變色提示「這裡可以點」，同時把專案名稱顯示在標記正上方；
 // 離開時把游標還原成拖曳用的 grab，懸浮文字也一併收起。
+// highlighted 是從畫面上的專案按鈕來的：滑過按鈕時，島上對應的標記也進入同樣的亮起狀態
 // labelRef 是外層（Canvas 外）那個 DOM 節點的 ref，直接改它的 style 而不透過 React state，
 // 這樣文字位置才能每一幀跟著相機/捲動更新，不會因為 setState 造成不必要的重渲染
-function useHoverHandlers(onClick, labelRef, title) {
+function useHoverHandlers(onClick, labelRef, title, highlighted = false) {
   const [hovered, setHovered] = useState(false)
+  const active = hovered || highlighted
   const group = useRef(null)
   const worldPos = useRef(new THREE.Vector3())
   const { camera, size } = useThree()
 
+  useEffect(() => {
+    if (labelRef?.current && title) toggleLabel(labelRef.current, title, active)
+  }, [active, labelRef, title])
+
   useFrame(() => {
-    if (!hovered || !labelRef?.current || !group.current) return
+    if (!active || !labelRef?.current || !group.current) return
     group.current.getWorldPosition(worldPos.current)
-    worldPos.current.project(camera)
-    const x = (worldPos.current.x * 0.5 + 0.5) * size.width
-    const y = (1 - (worldPos.current.y * 0.5 + 0.5)) * size.height
-    labelRef.current.style.transform = `translate(-50%, -100%) translate(${x}px, ${y - 12}px)`
+    placeAbove(labelRef.current, toScreen(worldPos.current, camera, size), 12)
   })
 
   return {
-    hovered,
+    active,
     group,
     handlers: {
       onClick: (e) => {
@@ -39,15 +55,10 @@ function useHoverHandlers(onClick, labelRef, title) {
         e.stopPropagation()
         setHovered(true)
         document.body.style.cursor = 'pointer'
-        if (labelRef?.current && title) {
-          labelRef.current.textContent = title
-          labelRef.current.style.opacity = '1'
-        }
       },
       onPointerOut: () => {
         setHovered(false)
         document.body.style.cursor = 'grab'
-        if (labelRef?.current) labelRef.current.style.opacity = '0'
       },
     },
   }
@@ -80,7 +91,7 @@ function ClickPulse({ color, radius = 0.16, y = 0, period = 2.2, paused = false 
 }
 
 // 會呼吸的發光體：沒有 hover 時亮度緩緩脈動、輕輕上下漂；hover 時放大、變白、變得更亮
-function useGlowMotion(hovered, { baseY, bobAmplitude = 0.03, hoverScale = 1.25 }) {
+function useGlowMotion(active, { baseY, bobAmplitude = 0.03, hoverScale = 1.25 }) {
   const mesh = useRef(null)
   const material = useRef(null)
   const scale = useRef(1)
@@ -88,19 +99,20 @@ function useGlowMotion(hovered, { baseY, bobAmplitude = 0.03, hoverScale = 1.25 
   useFrame(({ clock }, delta) => {
     if (!mesh.current || !material.current) return
     const t = clock.getElapsedTime()
-    scale.current = THREE.MathUtils.lerp(scale.current, hovered ? hoverScale : 1, 1 - Math.exp(-delta * 10))
+    scale.current = THREE.MathUtils.lerp(scale.current, active ? hoverScale : 1, 1 - Math.exp(-delta * 10))
     mesh.current.scale.setScalar(scale.current)
     mesh.current.position.y = baseY + Math.sin(t * 2) * bobAmplitude
-    material.current.emissiveIntensity = hovered ? 1.6 : 0.6 + (Math.sin(t * 3) + 1) * 0.2
+    material.current.emissiveIntensity = active ? 1.6 : 0.6 + (Math.sin(t * 3) + 1) * 0.2
   })
 
   return { mesh, material }
 }
 
 // 立在島上的告示牌：木樁 + 會緩緩自轉的發光菱形，代表「站上這座島的某個專案」
-export function ProjectPin({ onClick, title, labelRef }) {
-  const { hovered, group, handlers } = useHoverHandlers(onClick, labelRef, title)
-  const { mesh, material } = useGlowMotion(hovered, { baseY: 0.6 })
+// name 是專案 id，新手引導（GuideTracker）靠它在場景裡找到這個標記
+export function ProjectPin({ name, onClick, title, labelRef, highlighted }) {
+  const { active, group, handlers } = useHoverHandlers(onClick, labelRef, title, highlighted)
+  const { mesh, material } = useGlowMotion(active, { baseY: 0.6 })
   const spin = useRef(null)
 
   useFrame(({ clock }) => {
@@ -108,7 +120,7 @@ export function ProjectPin({ onClick, title, labelRef }) {
   })
 
   return (
-    <group ref={group} {...handlers}>
+    <group ref={group} name={name} {...handlers}>
       <mesh position={[0, 0.02, 0]} receiveShadow>
         <cylinderGeometry args={[0.09, 0.11, 0.04, 6]} />
         <meshStandardMaterial color={POST} flatShading />
@@ -122,22 +134,22 @@ export function ProjectPin({ onClick, title, labelRef }) {
           <octahedronGeometry args={[0.11, 0]} />
           <meshStandardMaterial
             ref={material}
-            color={hovered ? HOVER : PLAQUE_IDLE}
-            emissive={hovered ? HOVER : PLAQUE_IDLE}
+            color={active ? HOVER : PLAQUE_IDLE}
+            emissive={active ? HOVER : PLAQUE_IDLE}
             emissiveIntensity={0.7}
             flatShading
           />
         </mesh>
       </group>
-      <ClickPulse color={PLAQUE_IDLE} y={0.045} paused={hovered} />
+      <ClickPulse color={PLAQUE_IDLE} y={0.045} paused={active} />
     </group>
   )
 }
 
 // 浮標版本：拿掉木樁改成一個小木筏底座，給那些「不屬於任何一座島」的專案（例如卡在兩份工作空檔的案子）
-export function ProjectBuoy({ onClick, title, labelRef }) {
-  const { hovered, group, handlers } = useHoverHandlers(onClick, labelRef, title)
-  const { mesh, material } = useGlowMotion(hovered, { baseY: 0.6 })
+export function ProjectBuoy({ onClick, title, labelRef, highlighted }) {
+  const { active, group, handlers } = useHoverHandlers(onClick, labelRef, title, highlighted)
+  const { mesh, material } = useGlowMotion(active, { baseY: 0.6 })
   const spin = useRef(null)
 
   useFrame(({ clock }) => {
@@ -159,14 +171,14 @@ export function ProjectBuoy({ onClick, title, labelRef }) {
           <octahedronGeometry args={[0.12, 0]} />
           <meshStandardMaterial
             ref={material}
-            color={hovered ? HOVER : BUOY_IDLE}
-            emissive={hovered ? HOVER : BUOY_IDLE}
+            color={active ? HOVER : BUOY_IDLE}
+            emissive={active ? HOVER : BUOY_IDLE}
             emissiveIntensity={0.7}
             flatShading
           />
         </mesh>
       </group>
-      <ClickPulse color={BUOY_IDLE} radius={0.36} y={0.06} paused={hovered} />
+      <ClickPulse color={BUOY_IDLE} radius={0.36} y={0.06} paused={active} />
     </group>
   )
 }
@@ -200,8 +212,8 @@ const SPARKLE_COUNT = 6
 
 // 隱藏彩蛋：一顆會緩慢旋轉、閃爍的金色立體星星，周圍繞著小碎鑽。滑過去會變大、變亮
 export function DreamStar({ onClick, title, labelRef }) {
-  const { hovered, group, handlers } = useHoverHandlers(onClick, labelRef, title)
-  const { mesh, material } = useGlowMotion(hovered, { baseY: 0, bobAmplitude: 0.05, hoverScale: 1.35 })
+  const { active, group, handlers } = useHoverHandlers(onClick, labelRef, title)
+  const { mesh, material } = useGlowMotion(active, { baseY: 0, bobAmplitude: 0.05, hoverScale: 1.35 })
   const geometry = useStarGeometry()
   const star = useRef(null)
   const sparkleRefs = useRef([])
@@ -238,8 +250,8 @@ export function DreamStar({ onClick, title, labelRef }) {
         <mesh ref={star} geometry={geometry} castShadow>
           <meshStandardMaterial
             ref={material}
-            color={hovered ? HOVER : STAR_IDLE}
-            emissive={hovered ? HOVER : STAR_IDLE}
+            color={active ? HOVER : STAR_IDLE}
+            emissive={active ? HOVER : STAR_IDLE}
             emissiveIntensity={0.8}
             flatShading
           />
@@ -251,7 +263,7 @@ export function DreamStar({ onClick, title, labelRef }) {
           <meshStandardMaterial color="#fff3cc" emissive="#fff3cc" emissiveIntensity={1.2} />
         </mesh>
       ))}
-      <ClickPulse color={STAR_IDLE} radius={0.34} y={-0.38} period={2.6} paused={hovered} />
+      <ClickPulse color={STAR_IDLE} radius={0.34} y={-0.38} period={2.6} paused={active} />
     </group>
   )
 }

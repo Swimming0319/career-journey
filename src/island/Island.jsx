@@ -136,6 +136,7 @@ export default function Island({
   markers = [],
   onSelectProject,
   labelRef,
+  highlightedId,
 }) {
   const palette = useMemo(() => makePalette(color), [color])
   const geometry = useMemo(() => buildTerrainGeometry(seed, roughness, palette), [seed, roughness, palette])
@@ -183,7 +184,13 @@ export default function Island({
 
       {markerPlacements.map((marker) => (
         <Standing key={marker.id} position={marker.position} direction={marker.direction} spin={marker.spin}>
-          <ProjectPin onClick={() => onSelectProject?.(marker.id)} title={marker.title} labelRef={labelRef} />
+          <ProjectPin
+            name={marker.id}
+            onClick={() => onSelectProject?.(marker.id)}
+            title={marker.title}
+            labelRef={labelRef}
+            highlighted={marker.id === highlightedId}
+          />
         </Standing>
       ))}
     </group>

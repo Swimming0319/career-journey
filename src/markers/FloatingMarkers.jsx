@@ -7,7 +7,7 @@ const WORLD_UP = new THREE.Vector3(0, 1, 0)
 
 // 浮在兩站之間的專案標記（例如外包案的時間點剛好卡在兩份工作的空檔），
 // 用路徑的側向偏移離開主線一段距離，避免擋到引導線和飛船
-export function PathMarker({ curve, stopFractions, afterIndex, islandScale = 1, onClick, title, labelRef }) {
+export function PathMarker({ curve, stopFractions, afterIndex, islandScale = 1, onClick, title, labelRef, highlighted }) {
   const group = useRef(null)
   const base = useMemo(() => {
     const t = THREE.MathUtils.lerp(stopFractions[afterIndex], stopFractions[afterIndex + 1], 0.5)
@@ -23,7 +23,7 @@ export function PathMarker({ curve, stopFractions, afterIndex, islandScale = 1, 
 
   return (
     <group ref={group} position={base} scale={islandScale}>
-      <ProjectBuoy onClick={onClick} title={title} labelRef={labelRef} />
+      <ProjectBuoy onClick={onClick} title={title} labelRef={labelRef} highlighted={highlighted} />
     </group>
   )
 }

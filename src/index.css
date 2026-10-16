@@ -81,6 +81,48 @@ body {
   }
 }
 
+/* 新手引導：浮在第一個專案標記上方的提示泡泡，上下輕輕跳動吸引目光（定位由告示牌每一幀寫在外層節點） */
+.guide-pointer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  animation: guide-bounce 1.2s ease-in-out infinite;
+}
+
+.guide-bubble {
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: #4dd0e1;
+  color: #0d1117;
+  font: 600 0.8rem system-ui, sans-serif;
+  white-space: nowrap;
+  box-shadow: 0 0 16px rgba(77, 208, 225, 0.6);
+}
+
+.guide-arrow {
+  width: 0;
+  height: 0;
+  border-left: 7px solid transparent;
+  border-right: 7px solid transparent;
+  border-top: 8px solid #4dd0e1;
+}
+
+@keyframes guide-bounce {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .guide-pointer {
+    animation: none;
+  }
+}
+
 /* 3D 場景要滿版顯示，不做寬度限制、不置中、不加邊框 */
 #root {
   width: 100%;
