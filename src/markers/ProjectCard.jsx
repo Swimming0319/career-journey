@@ -309,7 +309,7 @@ const teamStyle = { color: INK_FAINT }
 // 內容越多需要越寬，文字才不會折太多行把卡片撐高
 const CARD_WIDTHS = ['470px', '900px', '900px', '1200px']
 
-// 條列總字數超過這個值就算「條目又多又長」，改用加寬版（目前只有台灣觀光協會後台會用到）
+// 條列總字數超過這個值就算「條目又多又長」，改用加寬版
 const DENSE_ITEM_CHARS = 400
 const DENSE_CARD_WIDTH = '1100px'
 
