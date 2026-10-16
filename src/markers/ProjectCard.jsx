@@ -74,6 +74,14 @@ export default function ProjectCard({ project, onClose }) {
   const longestList = Math.max(0, ...(project.sections?.map((s) => s.items?.length ?? 0) ?? []))
   const stackSections = sectionCount > 0 && (sectionCount <= 2 || longestList >= 6)
 
+  // 段落數一樣，條列的文字量可能差好幾倍：條目又多又長時，900px 的兩欄每條都要折好幾行，
+  // 卡片被撐高後只能整張縮小，所以改用加寬版，讓每欄寬一點、行數少一點
+  const itemChars = project.sections?.reduce(
+    (sum, s) => sum + (s.items ?? []).reduce((n, item) => n + item.length, 0),
+    0
+  ) ?? 0
+  const denseItems = stackSections && itemChars >= DENSE_ITEM_CHARS
+
   // 直接改 DOM 的 transform，不透過 React state，滑鼠移動時才不會整張卡片重新渲染
   const handleMouseMove = (e) => {
     const card = cardRef.current
@@ -100,7 +108,7 @@ export default function ProjectCard({ project, onClose }) {
         ref={wrapRef}
         style={{
           ...tiltWrapStyle,
-          maxWidth: CARD_WIDTHS[Math.min(sectionCount, 3)],
+          maxWidth: denseItems ? DENSE_CARD_WIDTH : CARD_WIDTHS[Math.min(sectionCount, 3)],
           transform: `translate(-50%, -50%) rotate(-1.4deg) scale(${scale})`,
         }}
       >
@@ -301,6 +309,10 @@ const teamStyle = { color: INK_FAINT }
 // 內容越多需要越寬，文字才不會折太多行把卡片撐高
 const CARD_WIDTHS = ['470px', '900px', '900px', '1200px']
 
+// 條列總字數超過這個值就算「條目又多又長」，改用加寬版（目前只有台灣觀光協會後台會用到）
+const DENSE_ITEM_CHARS = 400
+const DENSE_CARD_WIDTH = '1100px'
+
 const sectionColumnsStyle = {
   marginTop: '16px',
   columnWidth: '380px',
@@ -323,8 +335,9 @@ const sectionBodyStyle = { fontSize: '0.88rem', lineHeight: 1.65, color: 'rgba(4
 
 // 條列項目：破折號和文字並排成 flex，長句換行時會自動對齊在文字那一欄（懸掛縮排）
 const itemListStyle = { listStyle: 'none', margin: 0, padding: 0 }
-// 項目多的時候自己排成多欄，欄數由卡片寬度決定，清單再長也不會把卡片撐成直的
-const itemColumnsStyle = { ...itemListStyle, columnWidth: '300px', columnGap: '26px' }
+// 項目多的時候自己排成多欄，欄數由卡片寬度決定，清單再長也不會把卡片撐成直的。
+// 最多兩欄：卡片加寬時要讓每欄變寬、長句少折幾行，而不是多擠出一欄窄欄
+const itemColumnsStyle = { ...itemListStyle, columnWidth: '300px', columnCount: 2, columnGap: '26px' }
 const itemStyle = {
   display: 'flex',
   gap: '8px',
